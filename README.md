@@ -1,0 +1,1 @@
+# nti-fastapi-template
