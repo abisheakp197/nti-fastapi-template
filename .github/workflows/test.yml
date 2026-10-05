@@ -15,7 +15,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install fastapi "uvicorn[standard]" pydantic python-dotenv "langchain>=0.3.0,<0.4.0" langchain-openai
+          pip install -r requirements.txt --no-deps
       - name: Verify imports
         run: |
           python -c "import fastapi; print('FastAPI OK')"
