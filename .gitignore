@@ -1,0 +1,10 @@
+.env
+.venv_test/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env.local
+.DS_Store
+*.db
+*.log
