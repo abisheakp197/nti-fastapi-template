@@ -1,5 +1,7 @@
 # NTI Secure FastAPI Template
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A production-ready FastAPI backend serving AI agents protected by NTI (Neutral Trust Infrastructure) post-quantum security.
 
 Every tool call is cryptographically verified before execution using all 5 pillars of NTI:
@@ -59,7 +61,7 @@ Any tool without an explicit grant is automatically blocked.
 
 ## License
 
-PolyForm Shield License 1.0.0. Source-available.
+MIT License. See LICENSE.
 
 ## Links
 
