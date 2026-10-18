@@ -2,11 +2,18 @@
 AI agent with NTI post-quantum security for the FastAPI backend.
 """
 
+from typing import Any
+
+import ube_foundation  # type: ignore[import-untyped]
 from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
-from langchain_nti import NTICallbackHandler
+from langchain_nti import NTICallbackHandler  # type: ignore[import-untyped]
+from langchain_openai import ChatOpenAI
+
+# Ensure compatibility with langchain-nti's call to PqcKeyPair.generate()
+if not hasattr(ube_foundation.PqcKeyPair, "generate"):
+    ube_foundation.PqcKeyPair.generate = classmethod(lambda cls: cls())
 
 
 @tool
@@ -25,7 +32,7 @@ def build_agent(agent_id: str = "default_agent") -> AgentExecutor:
     """Build an NTI-secured LangChain agent for FastAPI use."""
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-    tools = [execute_transfer, read_account]
+    tools: list[Any] = [execute_transfer, read_account]
 
     prompt = ChatPromptTemplate.from_messages(
         [
