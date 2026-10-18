@@ -9,15 +9,16 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import ube_foundation  # type: ignore[import-untyped]
+
+# Ensure compatibility with langchain-nti's call to PqcKeyPair.generate()
+if not hasattr(ube_foundation.PqcKeyPair, "generate"):
+    ube_foundation.PqcKeyPair.generate = classmethod(lambda cls: cls())
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-
-# Ensure compatibility with langchain-nti's call to PqcKeyPair.generate()
-if not hasattr(ube_foundation.PqcKeyPair, "generate"):
-    ube_foundation.PqcKeyPair.generate = classmethod(lambda cls: cls())
 
 from agent import build_agent
 
@@ -122,7 +123,7 @@ async def invoke_agent(request: AgentRequest) -> AgentResponse:
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=f"NTI blocked action: {e}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(e))
 
 
