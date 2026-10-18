@@ -13,14 +13,16 @@ Every tool call is cryptographically verified before execution using all 5 pilla
 
 ## Quick Start
 
+```bash
 git clone https://github.com/abisheakp197/nti-fastapi-template.git my-backend
 cd my-backend
 pip install -r requirements.txt
 cp .env.example .env
 # Add your OPENAI_API_KEY to .env
 python main.py
+```
 
-The server starts at http://localhost:8000
+The server starts at `http://localhost:8000`
 
 ## API Endpoints
 
@@ -29,39 +31,68 @@ The server starts at http://localhost:8000
 | GET | /health | Health check |
 | POST | /agent/invoke | Invoke the NTI-secured agent |
 
-### Example Request
+### Example Request (Health Check)
 
+```bash
+curl -i http://localhost:8000/health
+```
+
+### Example Request (Agent Invoke - Unsigned, Rejected by NTI)
+
+```bash
 curl -X POST http://localhost:8000/agent/invoke \
   -H "Content-Type: application/json" \
   -d '{"input": "Transfer $100 USD to account 12345", "agent_id": "user_001"}'
+```
+
+Response:
+```json
+{"detail": "Missing required NTI cryptographic signature header (X-NTI-Signature)"}
+```
+
+### Example Request (Agent Invoke - Signed)
+
+```bash
+curl -X POST http://localhost:8000/agent/invoke \
+  -H "Content-Type: application/json" \
+  -H "X-NTI-Signature: sample_pqc_signature" \
+  -d '{"input": "Transfer $100 USD to account 12345", "agent_id": "user_001"}'
+```
 
 ### Example Response (Success)
 
+```json
 {"output": "Transferred 100.0 USD to account 12345", "agent_id": "user_001", "status": "success"}
+```
 
-### Example Response (Blocked by NTI)
+### Example Response (Blocked by NTI Capability Enforcement)
 
-{"detail": "NTI blocked action: capability not granted"}
+```json
+{"detail": "NTI blocked action: NTI Security Denied Action: capability not granted"}
+```
 
 ## What NTI Does Here
 
-- Every request is signed with the agent's post-quantum keypair (Dilithium5).
-- Only tools with an explicit grant in agent.py can be called.
+- Intercepts requests and enforces post-quantum cryptographic signatures (`X-NTI-Signature`).
+- Only tools with an explicit grant in `agent.py` can be called.
 - All evaluations are logged to a Merkle-chained audit trail.
-- Unauthorized actions return HTTP 403 before the tool executes.
+- Unauthorized or missing signature actions return HTTP 401 / 403 before execution.
+- Cryptographically signs outgoing HTTP responses (`X-NTI-Response-Signature`).
 
 ## How To Add Capabilities
 
-In agent.py, add a grant for any tool the agent should be allowed to call:
+In `agent.py`, add a grant for any tool the agent should be allowed to call:
 
+```python
 nti_handler.grant_capability("execute_transfer")
 nti_handler.grant_capability("read_account")
+```
 
 Any tool without an explicit grant is automatically blocked.
 
 ## License
 
-MIT License. See LICENSE.
+MIT License. See [LICENSE](LICENSE).
 
 ## Links
 
