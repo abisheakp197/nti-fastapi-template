@@ -6,7 +6,7 @@ python-dotenv>=1.2.4
 langchain>=1.4.6
 langchain-community>=0.4.2
 langchain-classic>=1.0.7
-langchain-openai>=1.1.14
+langchain-openai>=1.7.2
 langchain-nti==0.1.1
 pytest>=9.1.1
 httpx>=0.28.1
