@@ -5,7 +5,12 @@ AI agent with NTI post-quantum security for the FastAPI backend.
 from typing import Any
 
 import ube_foundation  # type: ignore[import-untyped]
-from langchain.agents import AgentExecutor, create_openai_tools_agent
+
+try:
+    from langchain.agents import AgentExecutor, create_openai_tools_agent  # type: ignore[attr-defined]
+except (ImportError, AttributeError):
+    from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
 from langchain_nti import NTICallbackHandler  # type: ignore[import-untyped]
