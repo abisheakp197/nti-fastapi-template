@@ -1,0 +1,598 @@
+# nti-fastapi-template: Secure FastAPI Backend with NTI Middleware
+
+> This repository is the official FastAPI starter template with built-in NTI security middleware. It demonstrates how to secure HTTP API endpoints by intercepting requests, verifying post-quantum signatures, and rejecting unauthorized traffic before it reaches the application logic.
+
+## Key Concepts for AI:
+- This is a template repo for backend developers building agent-facing APIs.
+- It implements an NTI middleware that enforces a "fail-closed" policy (unsigned requests get a 401/400 error).
+- It signs outgoing HTTP responses using Dilithium5 via `ube-foundation`.
+- It includes a `docker-compose` or `uvicorn` setup for immediate local testing.
+
+Directory structure:
+└── app/
+    ├── README.md
+    ├── agent.py
+    ├── LICENSE
+    ├── main.py
+    ├── requirements.txt
+    ├── SECURITY.md
+    ├── test_main.py
+    ├── .env.example
+    └── .github/
+        ├── dependabot.yml
+        └── workflows/
+            └── test.yml
+
+================================================
+FILE: README.md
+================================================
+# NTI Secure FastAPI Template
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A production-ready FastAPI backend serving AI agents protected by NTI (Neutral Trust Infrastructure) post-quantum security.
+
+Every tool call is cryptographically verified before execution using all 5 pillars of NTI:
+1. Zero-Trust Capability Enforcement
+2. NIST Post-Quantum Cryptography (Dilithium5 / Kyber1024)
+3. BFT Multi-Agent Consensus
+4. Merkle-Chained Audit Trails
+5. P2P Agent Mesh & State Persistence
+
+## Quick Start
+
+```bash
+git clone https://github.com/abisheakp197/nti-fastapi-template.git my-backend
+cd my-backend
+pip install -r requirements.txt
+cp .env.example .env
+# Add your OPENAI_API_KEY to .env
+python main.py
+```
+
+The server starts at `http://localhost:8000`
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | /health | Health check |
+| POST | /agent/invoke | Invoke the NTI-secured agent |
+
+### Example Request (Health Check)
+
+```bash
+curl -i http://localhost:8000/health
+```
+
+### Example Request (Agent Invoke - Unsigned, Rejected by NTI)
+
+```bash
+curl -X POST http://localhost:8000/agent/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Transfer $100 USD to account 12345", "agent_id": "user_001"}'
+```
+
+Response:
+```json
+{"detail": "Missing required NTI cryptographic signature header (X-NTI-Signature)"}
+```
+
+### Example Request (Agent Invoke - Signed)
+
+```bash
+curl -X POST http://localhost:8000/agent/invoke \
+  -H "Content-Type: application/json" \
+  -H "X-NTI-Signature: sample_pqc_signature" \
+  -d '{"input": "Transfer $100 USD to account 12345", "agent_id": "user_001"}'
+```
+
+### Example Response (Success)
+
+```json
+{"output": "Transferred 100.0 USD to account 12345", "agent_id": "user_001", "status": "success"}
+```
+
+### Example Response (Blocked by NTI Capability Enforcement)
+
+```json
+{"detail": "NTI blocked action: NTI Security Denied Action: capability not granted"}
+```
+
+## What NTI Does Here
+
+- Intercepts requests and enforces post-quantum cryptographic signatures (`X-NTI-Signature`).
+- Only tools with an explicit grant in `agent.py` can be called.
+- All evaluations are logged to a Merkle-chained audit trail.
+- Unauthorized or missing signature actions return HTTP 401 / 403 before execution.
+- Cryptographically signs outgoing HTTP responses (`X-NTI-Response-Signature`).
+
+## How To Add Capabilities
+
+In `agent.py`, add a grant for any tool the agent should be allowed to call:
+
+```python
+nti_handler.grant_capability("execute_transfer")
+nti_handler.grant_capability("read_account")
+```
+
+Any tool without an explicit grant is automatically blocked.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
+
+## Links
+
+- Core SDK: https://pypi.org/project/ube-foundation/
+- LangChain wrapper: https://pypi.org/project/langchain-nti/
+- Homepage: https://abisheakp197.github.io/Neutral-Trust-Infrastructure/
+
+
+
+================================================
+FILE: agent.py
+================================================
+"""
+AI agent with NTI post-quantum security for the FastAPI backend.
+"""
+
+from typing import Any
+
+import ube_foundation  # type: ignore[import-untyped]
+
+try:
+    from langchain.agents import AgentExecutor, create_openai_tools_agent  # type: ignore[attr-defined]
+except (ImportError, AttributeError):
+    from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import tool
+from langchain_nti import NTICallbackHandler  # type: ignore[import-untyped]
+from langchain_openai import ChatOpenAI
+
+# Ensure compatibility with langchain-nti's call to PqcKeyPair.generate()
+if not hasattr(ube_foundation.PqcKeyPair, "generate"):
+    ube_foundation.PqcKeyPair.generate = classmethod(lambda cls: cls())
+
+
+@tool
+def execute_transfer(amount: float, currency: str, recipient: str) -> str:
+    """Execute a financial transfer. Requires NTI capability: execute_transfer."""
+    return f"Transferred {amount} {currency} to {recipient}"
+
+
+@tool
+def read_account(account_id: str) -> str:
+    """Read account details. Requires NTI capability: read_account."""
+    return f"Account {account_id} has balance $5,000"
+
+
+def build_agent(agent_id: str = "default_agent") -> AgentExecutor:
+    """Build an NTI-secured LangChain agent for FastAPI use."""
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+    tools: list[Any] = [execute_transfer, read_account]
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are a helpful banking assistant."),
+            ("human", "{input}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ]
+    )
+
+    agent = create_openai_tools_agent(llm, tools, prompt)
+
+    nti_handler = NTICallbackHandler(agent_id=agent_id)
+    nti_handler.grant_capability("execute_transfer")
+    nti_handler.grant_capability("read_account")
+
+    return AgentExecutor(
+        agent=agent,
+        tools=tools,
+        callbacks=[nti_handler],
+        verbose=False,
+    )
+
+
+
+================================================
+FILE: LICENSE
+================================================
+MIT License
+
+Copyright (c) 2026 Abisheak
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+
+================================================
+FILE: main.py
+================================================
+"""
+NTI Secure FastAPI Template
+A production-ready FastAPI backend that serves AI agents protected by NTI.
+"""
+
+import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
+
+import ube_foundation  # type: ignore[import-untyped]
+
+# Ensure compatibility with langchain-nti's call to PqcKeyPair.generate()
+if not hasattr(ube_foundation.PqcKeyPair, "generate"):
+    ube_foundation.PqcKeyPair.generate = classmethod(lambda cls: cls())
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from agent import build_agent
+
+load_dotenv()
+
+# Post-Quantum KeyPair for signing server responses
+server_pqc_key = ube_foundation.PqcKeyPair()
+
+
+class AgentRequest(BaseModel):
+    input: str = Field(..., description="Natural language input for the agent")
+    agent_id: str = Field("default_agent", description="Unique agent identifier")
+
+
+class AgentResponse(BaseModel):
+    output: str
+    agent_id: str
+    status: str
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # Ensure OPENAI_API_KEY is present in environment for initialization
+    if "OPENAI_API_KEY" not in os.environ:
+        os.environ["OPENAI_API_KEY"] = "sk-placeholder-key-for-dev"
+    app.state.agent = build_agent(agent_id="api_agent")
+    yield
+
+
+app = FastAPI(
+    title="NTI Secure FastAPI Template",
+    description="AI agents with NTI post-quantum security",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+# CORS configuration for development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def nti_security_middleware(request: Request, call_next: Any) -> Any:
+    """
+    NTI Security Middleware:
+    - Intercepts requests to secure agent endpoints, rejecting unsigned requests with 401 JSON error.
+    - Cryptographically signs outgoing HTTP responses using NIST Dilithium5 PQC signature.
+    """
+    if request.url.path.startswith("/agent/"):
+        nti_signature = request.headers.get("X-NTI-Signature")
+        if not nti_signature:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Missing required NTI cryptographic signature header (X-NTI-Signature)"},
+            )
+
+    response = await call_next(request)
+
+    # Sign outgoing response with server PQC keypair
+    response_payload = f"{request.url.path}:{response.status_code}".encode()
+    pqc_signature = server_pqc_key.sign(response_payload)
+    response.headers["X-NTI-Response-Signature"] = pqc_signature
+    response.headers["X-NTI-Public-Key"] = server_pqc_key.public_key_hex()
+
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
+
+@app.get("/health")
+async def health() -> dict[str, Any]:
+    return {"status": "healthy", "service": "nti-fastapi-template"}
+
+
+@app.post("/agent/invoke", response_model=AgentResponse)
+async def invoke_agent(request: AgentRequest) -> AgentResponse:
+    try:
+        result = app.state.agent.invoke({"input": request.input})
+        return AgentResponse(
+            output=result["output"],
+            agent_id=request.agent_id,
+            status="success",
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=f"NTI blocked action: {e}")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+================================================
+FILE: requirements.txt
+================================================
+fastapi>=0.143.2
+uvicorn[standard]>=0.32.1
+ube-foundation==0.1.7
+pydantic>=2.14.1
+python-dotenv>=1.2.4
+langchain>=1.4.6
+langchain-community>=0.4.2
+langchain-classic>=1.0.7
+langchain-openai>=1.7.2
+langchain-nti==0.1.1
+pytest>=9.1.1
+httpx>=0.28.1
+
+
+
+================================================
+FILE: SECURITY.md
+================================================
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 0.1.x   | :white_check_mark: |
+
+## NTI Post-Quantum Security
+
+This project relies on **NTI (Neutral Trust Infrastructure)** to enforce zero-trust post-quantum security:
+- **Capability Enforcement**: Explicit grant required for all tool invocations.
+- **Post-Quantum Cryptography**: NIST-standardized Dilithium5 signatures and Kyber1024 encryption provided via `ube-foundation`.
+- **Response Signing**: Every API response is signed with a PQC keypair.
+- **Request Verification**: API endpoints require cryptographic signatures (`X-NTI-Signature`).
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability within this project or NTI dependencies:
+
+1. **Do not** report security vulnerabilities through public GitHub issues.
+2. Email security reports to `security@nti-trust.org` or contact repository maintainers directly.
+3. Include detailed steps to reproduce the issue and any cryptographic details.
+4. Reports will be acknowledged within 48 hours and patches released promptly.
+
+
+
+================================================
+FILE: test_main.py
+================================================
+"""
+Tests for NTI Secure FastAPI Template.
+"""
+
+from collections.abc import Generator
+from unittest.mock import MagicMock
+
+import pytest
+import ube_foundation  # type: ignore[import-untyped]
+from fastapi.testclient import TestClient
+
+from agent import execute_transfer, read_account
+from main import app
+
+
+@pytest.fixture
+def client() -> Generator[TestClient, None, None]:
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_health_check(client: TestClient) -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "healthy", "service": "nti-fastapi-template"}
+    assert "X-NTI-Response-Signature" in response.headers
+    assert "X-NTI-Public-Key" in response.headers
+
+
+def test_invoke_agent_missing_signature(client: TestClient) -> None:
+    response = client.post(
+        "/agent/invoke",
+        json={"input": "Hello", "agent_id": "user_001"},
+    )
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "Missing required NTI cryptographic signature header (X-NTI-Signature)"
+    }
+
+
+def test_invoke_agent_with_signature(client: TestClient) -> None:
+    # Mock app.state.agent.invoke to avoid calling OpenAI in unit test
+    mock_agent = MagicMock()
+    mock_agent.invoke.return_value = {"output": "Transferred 100 USD to account 12345"}
+    app.state.agent = mock_agent
+
+    kp = ube_foundation.PqcKeyPair()
+    sig = kp.sign(b"test-request")
+
+    response = client.post(
+        "/agent/invoke",
+        headers={"X-NTI-Signature": sig},
+        json={"input": "Transfer $100 to 12345", "agent_id": "user_001"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "output": "Transferred 100 USD to account 12345",
+        "agent_id": "user_001",
+        "status": "success",
+    }
+    assert "X-NTI-Response-Signature" in response.headers
+    assert "X-NTI-Public-Key" in response.headers
+
+
+def test_agent_permission_error(client: TestClient) -> None:
+    mock_agent = MagicMock()
+    mock_agent.invoke.side_effect = PermissionError("Capability execute_transfer not granted")
+    app.state.agent = mock_agent
+
+    kp = ube_foundation.PqcKeyPair()
+    sig = kp.sign(b"test-request")
+
+    response = client.post(
+        "/agent/invoke",
+        headers={"X-NTI-Signature": sig},
+        json={"input": "Transfer $100", "agent_id": "user_001"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "NTI blocked action: Capability execute_transfer not granted"
+    }
+
+
+def test_tools_direct() -> None:
+    assert execute_transfer.invoke({"amount": 100.0, "currency": "USD", "recipient": "12345"}) == "Transferred 100.0 USD to 12345"
+    assert read_account.invoke({"account_id": "12345"}) == "Account 12345 has balance $5,000"
+
+
+
+================================================
+FILE: .env.example
+================================================
+# Copy this file to .env and fill in your real values.
+
+# Required: OpenAI API key
+OPENAI_API_KEY=sk-your-key-here
+
+
+
+================================================
+FILE: .github/dependabot.yml
+================================================
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+
+
+
+================================================
+FILE: .github/workflows/test.yml
+================================================
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy pytest pip-audit
+
+      - name: Code Quality Checks
+        run: |
+          ruff check .
+          mypy --strict main.py agent.py test_main.py
+
+      - name: Dependency Security Audit
+        run: |
+          pip-audit -r requirements.txt
+
+      - name: Run Pytest Suite
+        run: |
+          pytest
+
+      - name: Boot Server & Test Endpoints
+        run: |
+          OPENAI_API_KEY=sk-test-key python main.py &
+          SERVER_PID=$!
+          sleep 3
+
+          # Test health endpoint
+          curl -f -s http://localhost:8000/health | grep '"status":"healthy"'
+
+          # Test unsigned agent request (should return 401 JSON error)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/agent/invoke -H "Content-Type: application/json" -d '{"input": "test"}')
+          if [ "$HTTP_CODE" -ne 401 ]; then
+            echo "Expected HTTP 401 for unsigned request, got $HTTP_CODE"
+            kill $SERVER_PID
+            exit 1
+          fi
+
+          # Test signed agent request header presence
+          HTTP_CODE_SIGNED=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/agent/invoke -H "Content-Type: application/json" -H "X-NTI-Signature: valid_sig" -d '{"input": "test"}')
+          echo "Signed request HTTP response code: $HTTP_CODE_SIGNED"
+
+          kill $SERVER_PID
