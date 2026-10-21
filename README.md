@@ -99,3 +99,70 @@ MIT License. See [LICENSE](LICENSE).
 - Core SDK: https://pypi.org/project/ube-foundation/
 - LangChain wrapper: https://pypi.org/project/langchain-nti/
 - Homepage: https://abisheakp197.github.io/Neutral-Trust-Infrastructure/
+
+## Architecture
+
+```mermaid
+graph TD
+    subgraph Client ["Client Layer"]
+        C1["HTTP Client / AI Agent Consumer"]
+        C2["HTTP Request<br/>(Path, Body, X-NTI-Signature)"]
+        C3["HTTP Response<br/>(Body + X-NTI-Response-Signature)"]
+    end
+
+    subgraph FastAPIApp ["FastAPI App"]
+        F1["FastAPI Application"]
+        F2["CORS Middleware"]
+        F3["GET /health"]
+        F4["POST /agent/invoke"]
+        F5["LangChain Agent (build_agent)"]
+    end
+
+    subgraph NTISecurity ["NTI Security Layer"]
+        M1["nti_security_middleware"]
+        M2{"Target Path starts with /agent/?"}
+        M3["Extract X-NTI-Signature Header"]
+        M4{"Header Present?"}
+        M5["401 Unauthorized<br/>(Missing NTI Signature Header)"]
+        M6["NTICallbackHandler<br/>Capability Verification"]
+        M7["403 Forbidden<br/>(Capability Denied)"]
+        M8["Response Signer<br/>(path:status_code)"]
+    end
+
+    subgraph CryptoEngine ["Crypto Engine (ube-foundation)"]
+        K1["PqcKeyPair (Dilithium5 / Kyber1024)"]
+        K2["server_pqc_key"]
+    end
+
+    %% Flow connections
+    C1 -->|"Sends HTTP Request"| C2
+    C2 -->|"Intercepted by"| F1
+    F1 --> F2
+    F2 --> M1
+
+    M1 --> M2
+    M2 -->|"No (e.g., /health)"| F3
+    M2 -->|"Yes (/agent/*)"| M3
+
+    M3 --> M4
+    M4 -->|"No (Unsigned / Missing)"| M5
+    M5 -->|"Fail-Closed Rejection"| C3
+
+    M4 -->|"Yes (Signed)"| F4
+    F4 --> F5
+    F5 --> M6
+
+    M6 -->|"Capability Not Granted"| M7
+    M7 -->|"Access Blocked"| C3
+
+    M6 -->|"Capability Allowed"| K1
+    K1 -->|"Execute Tool"| F5
+
+    F3 --> M8
+    F5 -->|"Return Result"| M8
+
+    M8 -->|"Sign with"| K2
+    K2 -->|"Attach X-NTI-Response-Signature & X-NTI-Public-Key"| M8
+    M8 -->|"Return Response"| C3
+    C3 --> C1
+```
